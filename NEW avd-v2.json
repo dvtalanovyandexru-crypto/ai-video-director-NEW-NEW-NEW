@@ -1,0 +1,361 @@
+{
+  "name": "AI Video Director v2",
+  "nodes": [
+    {
+      "id": "node-01",
+      "name": "1. Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "position": [200, 300],
+      "webhookId": "avd-v2",
+      "parameters": {
+        "path": "avd-v2",
+        "httpMethod": "POST",
+        "responseMode": "responseNode",
+        "options": {
+          "rawBody": true
+        }
+      },
+      "typeVersion": 2
+    },
+    {
+      "id": "node-02",
+      "name": "2. Parse FormData",
+      "type": "n8n-nodes-base.code",
+      "position": [450, 300],
+      "parameters": {
+        "jsCode": "const raw = $input.first().json;\nconst body = raw.body || raw;\n\nconst projectName = body.projectName || 'Untitled';\nconst apiKey = body.apiKey || '';\nconst videoModel = body.videoModel || 'seedance-2.0';\nconst aspectRatio = body.aspectRatio || '16:9';\nconst quality = body.quality || 'standard';\n\nconst characters = body.characters || {};\nconst scenes = body.scenes || [];\nconst referenceVideoUrl = body.referenceVideoUrl || '';\nconst music = body.music || { enabled: false, description: '', url: '' };\n\nconst ttsJobs = [];\nfor (let si = 0; si < scenes.length; si++) {\n  const sc = scenes[si];\n  if (sc.dialogues && sc.dialogues.length > 0) {\n    for (let di = 0; di < sc.dialogues.length; di++) {\n      const d = sc.dialogues[di];\n      const charName = d.character || '';\n      const char = characters[charName] || {};\n      ttsJobs.push({\n        sceneIndex: si,\n        dialogueIndex: di,\n        character: charName,\n        text: d.text || '',\n        voiceId: char.voiceId || '',\n        voiceDescription: char.voiceDescription || '',\n        gender: char.gender || 'female',\n        age: char.age || 30\n      });\n    }\n  }\n}\n\nreturn [{\n  json: {\n    projectName,\n    apiKey,\n    videoModel,\n    aspectRatio,\n    quality,\n    characters,\n    scenes,\n    referenceVideoUrl,\n    music,\n    ttsJobs,\n    supabaseUrl: 'https://supabase.fantomnatashi.ru'\n  }\n}];"
+      },
+      "typeVersion": 2
+    },
+    {
+      "id": "node-03",
+      "name": "3. Upload Files to Supabase",
+      "type": "n8n-nodes-base.code",
+      "position": [700, 300],
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconst supabaseUrl = data.supabaseUrl;\nconst serviceKey = $env.SUPABASE_SERVICE_ROLE_KEY;\nconst bucket = 'avd-files';\n\nasync function uploadToSupabase(fileUrl, destPath) {\n  if (!fileUrl || fileUrl.startsWith(supabaseUrl)) return fileUrl;\n  try {\n    const response = await fetch(fileUrl);\n    const buffer = await response.arrayBuffer();\n    const uploadUrl = `${supabaseUrl}/storage/v1/object/${bucket}/${destPath}`;\n    const uploadResp = await fetch(uploadUrl, {\n      method: 'POST',\n      headers: {\n        'Authorization': `Bearer ${serviceKey}`,\n        'apikey': serviceKey,\n        'Content-Type': 'application/octet-stream',\n        'x-upsert': 'true'\n      },\n      body: Buffer.from(buffer)\n    });\n    if (uploadResp.ok) {\n      return `${supabaseUrl}/storage/v1/object/public/${bucket}/${destPath}`;\n    }\n  } catch(e) {}\n  return fileUrl;\n}\n\nconst timestamp = Date.now();\nconst chars = data.characters || {};\n\nfor (const [name, char] of Object.entries(chars)) {\n  const safeName = name.replace(/[^a-zA-Z0-9\\u0400-\\u04FF]/g, '_');\n  if (char.facePhotoUrl) {\n    char.facePhotoUrl = await uploadToSupabase(char.facePhotoUrl, `${timestamp}/${safeName}_face.jpg`);\n  }\n  if (char.referenceVideoUrl) {\n    char.referenceVideoUrl = await uploadToSupabase(char.referenceVideoUrl, `${timestamp}/${safeName}_ref.mp4`);\n  }\n}\n\nif (data.referenceVideoUrl) {\n  data.referenceVideoUrl = await uploadToSupabase(data.referenceVideoUrl, `${timestamp}/reference_video.mp4`);\n}\n\ndata.characters = chars;\ndata._timestamp = timestamp;\n\nreturn [{ json: data }];"
+      },
+      "typeVersion": 2
+    },
+    {
+      "id": "node-04",
+      "name": "4. Split TTS Jobs",
+      "type": "n8n-nodes-base.code",
+      "position": [950, 300],
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconst jobs = data.ttsJobs || [];\n\nif (jobs.length === 0) {\n  return [{ json: { ...data, _noTTS: true, audioFiles: [] } }];\n}\n\nreturn jobs.map(job => ({\n  json: {\n    ...job,\n    _parentData: data\n  }\n}));"
+      },
+      "typeVersion": 2
+    },
+    {
+      "id": "node-05",
+      "name": "5. TTS MiniMax",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [1200, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.minimax.io/v1/t2a_v2",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('2. Parse FormData').first().json.apiKey }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'speech-2.8-hd', text: $json.text, stream: false, language_boost: 'Russian', output_format: 'url', voice_setting: { voice_id: $json.voiceId || 'Russian_BrightHeroine', speed: 1, vol: 1, pitch: 0 }, audio_setting: { sample_rate: 32000, bitrate: 128000, format: 'mp3', channel: 1 } }) }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "typeVersion": 4.2
+    },
+    {
+      "id": "node-06",
+      "name": "6. Extract Audio URL",
+      "type": "n8n-nodes-base.code",
+      "position": [1450, 300],
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst results = [];\n\nfor (const item of items) {\n  const audioUrl = item.json?.data?.audio?.audio_url || item.json?.audio_url || item.json?.data?.audio_url || '';\n  results.push({\n    json: {\n      sceneIndex: item.json.sceneIndex ?? 0,\n      dialogueIndex: item.json.dialogueIndex ?? 0,\n      character: item.json.character || '',\n      audioUrl: audioUrl,\n      text: item.json.text || ''\n    }\n  });\n}\n\nreturn results;"
+      },
+      "typeVersion": 2
+    },
+    {
+      "id": "node-07",
+      "name": "7. Download Audio",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [1700, 300],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.audioUrl }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "typeVersion": 4.2
+    },
+    {
+      "id": "node-08",
+      "name": "8. Gather Audio Results",
+      "type": "n8n-nodes-base.code",
+      "position": [1950, 300],
+      "parameters": {
+        "jsCode": "const audioItems = $input.all();\nconst uploadData = $('3. Upload Files to Supabase').first().json;\n\nreturn [{\n  json: {\n    ...uploadData,\n    audioItems: audioItems.map((item, i) => ({\n      sceneIndex: item.json?.sceneIndex ?? i,\n      dialogueIndex: item.json?.dialogueIndex ?? 0,\n      character: item.json?.character || '',\n      hasBinary: !!item.binary?.data\n    }))\n  }\n}];"
+      },
+      "typeVersion": 2
+    },
+    {
+      "id": "node-09",
+      "name": "9. Save Audio to Disk",
+      "type": "n8n-nodes-base.code",
+      "position": [2200, 300],
+      "parameters": {
+        "jsCode": "const fs = require('fs');\nconst data = $input.first().json;\nconst audioItems = $('7. Download Audio').all();\nconst ts = data._timestamp || Date.now();\nconst workDir = `/tmp/avd_${ts}`;\n\nfs.mkdirSync(workDir, { recursive: true });\n\nconst savedAudio = [];\nfor (let i = 0; i < audioItems.length; i++) {\n  const item = audioItems[i];\n  if (item.binary?.data) {\n    const filePath = `${workDir}/audio_s${item.json?.sceneIndex || 0}_d${item.json?.dialogueIndex || i}.mp3`;\n    const buf = Buffer.from(item.binary.data.data, 'base64');\n    fs.writeFileSync(filePath, buf);\n    savedAudio.push({\n      path: filePath,\n      sceneIndex: item.json?.sceneIndex || 0,\n      dialogueIndex: item.json?.dialogueIndex || i\n    });\n  }\n}\n\nreturn [{\n  json: {\n    ...data,\n    workDir,\n    savedAudio\n  }\n}];"
+      },
+      "typeVersion": 2
+    },
+    {
+      "id": "node-10",
+      "name": "10. Prepare Video Requests",
+      "type": "n8n-nodes-base.code",
+      "position": [2450, 300],
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconst scenes = data.scenes || [];\nconst characters = data.characters || {};\n\nconst results = [];\nfor (let i = 0; i < scenes.length; i++) {\n  const sc = scenes[i];\n  const charName = sc.characters?.[0] || Object.keys(characters)[0] || '';\n  const char = characters[charName] || {};\n\n  results.push({\n    json: {\n      sceneIndex: i,\n      prompt: sc.prompt || sc.description || '',\n      duration: sc.duration || 10,\n      aspect_ratio: data.aspectRatio || '16:9',\n      model: data.videoModel || 'seedance-2.0',\n      mode: data.quality === 'high' ? 'pro' : 'std',\n      image_url: char.facePhotoUrl || '',\n      video_url: (i === 0 && data.referenceVideoUrl) ? data.referenceVideoUrl : '',\n      camera_angle: sc.cameraAngle || 'medium shot',\n      lighting: sc.lighting || 'natural',\n      _workDir: data.workDir,\n      _timestamp: data._timestamp,\n      _apiKey: data.apiKey\n    }\n  });\n}\n\nreturn results;"
+      },
+      "typeVersion": 2
+    },
+    {
+      "id": "node-11",
+      "name": "11. Generate Video (API)",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [2700, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "https://apiin.one/api/v1/video/generations",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json._apiKey }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: $json.model, prompt: $json.prompt + '. Camera: ' + $json.camera_angle + '. Lighting: ' + $json.lighting, duration: $json.duration, aspect_ratio: $json.aspect_ratio, mode: $json.mode, sound: false, image: $json.image_url || undefined, video_url: $json.video_url || undefined }) }}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "typeVersion": 4.2
+    },
+    {
+      "id": "node-12",
+      "name": "12. Wait Before Poll",
+      "type": "n8n-nodes-base.wait",
+      "position": [2950, 300],
+      "parameters": {
+        "amount": 20,
+        "unit": "seconds"
+      },
+      "typeVersion": 1.1
+    },
+    {
+      "id": "node-13",
+      "name": "13. Poll Video Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [3200, 300],
+      "parameters": {
+        "method": "GET",
+        "url": "=https://apiin.one/api/v1/video/generations/{{ $json.data?.task_id || $json.task_id || $json.id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('10. Prepare Video Requests').first().json._apiKey }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "typeVersion": 4.2
+    },
+    {
+      "id": "node-14",
+      "name": "14. Check If Ready",
+      "type": "n8n-nodes-base.if",
+      "position": [3450, 300],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "cond-ready",
+              "leftValue": "={{ ($json.data?.status || $json.status || '').toLowerCase() }}",
+              "rightValue": "completed",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      },
+      "typeVersion": 2
+    },
+    {
+      "id": "node-15",
+      "name": "15. Wait 15s Retry",
+      "type": "n8n-nodes-base.wait",
+      "position": [3450, 550],
+      "parameters": {
+        "amount": 15,
+        "unit": "seconds"
+      },
+      "typeVersion": 1.1
+    },
+    {
+      "id": "node-16",
+      "name": "16. Download Videos",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [3700, 300],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.data?.video_url || $json.video_url || $json.data?.result?.video_url || $json.result?.video_url }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          },
+          "timeout": 120000
+        }
+      },
+      "typeVersion": 4.2
+    },
+    {
+      "id": "node-17",
+      "name": "17. FFmpeg Build Command",
+      "type": "n8n-nodes-base.code",
+      "position": [3950, 300],
+      "parameters": {
+        "jsCode": "const fs = require('fs');\nconst videoItems = $input.all();\nconst parsing = $('2. Parse FormData').first().json;\nconst audioData = $('9. Save Audio to Disk').first().json;\nconst workDir = audioData.workDir || `/tmp/avd_${Date.now()}`;\nconst savedAudio = audioData.savedAudio || [];\n\nfs.mkdirSync(workDir, { recursive: true });\n\nconst videoFiles = [];\nfor (let i = 0; i < videoItems.length; i++) {\n  const item = videoItems[i];\n  if (item.binary?.data) {\n    const filePath = `${workDir}/scene_${i}.mp4`;\n    const buf = Buffer.from(item.binary.data.data, 'base64');\n    fs.writeFileSync(filePath, buf);\n    videoFiles.push(filePath);\n  }\n}\n\nconst refUrl = parsing.referenceVideoUrl || '';\nconst cmds = [];\n\nif (refUrl) {\n  cmds.push(`curl -sL \"${refUrl}\" -o ${workDir}/ref.mp4`);\n}\n\nlet concatContent = '';\nif (refUrl) concatContent += `file '${workDir}/ref.mp4'\\n`;\nvideoFiles.forEach(f => { concatContent += `file '${f}'\\n`; });\nfs.writeFileSync(`${workDir}/concat_video.txt`, concatContent);\n\ncmds.push(`ffmpeg -y -f concat -safe 0 -i ${workDir}/concat_video.txt -c:v libx264 -preset fast -crf 23 ${workDir}/merged_video.mp4`);\n\nif (savedAudio.length > 0) {\n  const sceneAudioMap = {};\n  savedAudio.forEach(a => {\n    if (!sceneAudioMap[a.sceneIndex]) sceneAudioMap[a.sceneIndex] = [];\n    sceneAudioMap[a.sceneIndex].push(a.path);\n  });\n\n  const allAudioPaths = [];\n  const sceneIndices = Object.keys(sceneAudioMap).sort((a,b) => a - b);\n\n  if (refUrl) {\n    cmds.push(`ffprobe -v error -show_entries format=duration -of csv=p=0 ${workDir}/ref.mp4 > ${workDir}/ref_duration.txt`);\n    cmds.push(`REF_DUR=$(cat ${workDir}/ref_duration.txt) && ffmpeg -y -f lavfi -i anullsrc=r=32000:cl=mono -t $REF_DUR ${workDir}/silence_ref.mp3`);\n    allAudioPaths.push(`${workDir}/silence_ref.mp3`);\n  }\n\n  for (const si of sceneIndices) {\n    const files = sceneAudioMap[si];\n    if (files.length === 1) {\n      allAudioPaths.push(files[0]);\n    } else {\n      const sceneConcat = files.map(f => `file '${f}'`).join('\\n');\n      fs.writeFileSync(`${workDir}/audio_scene_${si}.txt`, sceneConcat);\n      cmds.push(`ffmpeg -y -f concat -safe 0 -i ${workDir}/audio_scene_${si}.txt -c copy ${workDir}/audio_scene_${si}.mp3`);\n      allAudioPaths.push(`${workDir}/audio_scene_${si}.mp3`);\n    }\n  }\n\n  const audioConcat = allAudioPaths.map(f => `file '${f}'`).join('\\n');\n  fs.writeFileSync(`${workDir}/concat_audio.txt`, audioConcat);\n  cmds.push(`ffmpeg -y -f concat -safe 0 -i ${workDir}/concat_audio.txt -c copy ${workDir}/merged_audio.mp3`);\n  cmds.push(`ffmpeg -y -i ${workDir}/merged_video.mp4 -i ${workDir}/merged_audio.mp3 -c:v copy -c:a aac -map 0:v:0 -map 1:a:0 -shortest ${workDir}/final.mp4`);\n} else {\n  cmds.push(`cp ${workDir}/merged_video.mp4 ${workDir}/final.mp4`);\n}\n\nconst music = parsing.music || {};\nif (music.enabled && music.url) {\n  cmds.push(`curl -sL \"${music.url}\" -o ${workDir}/music.mp3`);\n  cmds.push(`mv ${workDir}/final.mp4 ${workDir}/final_nomusic.mp4`);\n  cmds.push(`ffmpeg -y -i ${workDir}/final_nomusic.mp4 -i ${workDir}/music.mp3 -filter_complex \"[1:a]volume=0.15[bg];[0:a][bg]amix=inputs=2:duration=first[aout]\" -map 0:v -map \"[aout]\" -c:v copy -c:a aac ${workDir}/final.mp4`);\n}\n\nconst fullCmd = cmds.join(' && ');\n\nreturn [{ json: { command: fullCmd, workDir, outputFile: `${workDir}/final.mp4` } }];"
+      },
+      "typeVersion": 2
+    },
+    {
+      "id": "node-18",
+      "name": "18. Execute FFmpeg",
+      "type": "n8n-nodes-base.executeCommand",
+      "position": [4200, 300],
+      "parameters": {
+        "command": "={{ $json.command }}",
+        "options": {
+          "timeout": 600
+        }
+      },
+      "typeVersion": 1
+    },
+    {
+      "id": "node-19",
+      "name": "19. Upload Final to Supabase",
+      "type": "n8n-nodes-base.code",
+      "position": [4450, 300],
+      "parameters": {
+        "jsCode": "const fs = require('fs');\nconst workDir = $('17. FFmpeg Build Command').first().json.workDir;\nconst outputFile = $('17. FFmpeg Build Command').first().json.outputFile;\nconst serviceKey = $env.SUPABASE_SERVICE_ROLE_KEY;\nconst supabaseUrl = 'https://supabase.fantomnatashi.ru';\nconst bucket = 'avd-files';\nconst fileName = `final_${Date.now()}.mp4`;\n\nconst fileBuffer = fs.readFileSync(outputFile);\n\nconst uploadUrl = `${supabaseUrl}/storage/v1/object/${bucket}/${fileName}`;\nconst resp = await fetch(uploadUrl, {\n  method: 'POST',\n  headers: {\n    'Authorization': `Bearer ${serviceKey}`,\n    'apikey': serviceKey,\n    'Content-Type': 'video/mp4',\n    'x-upsert': 'true'\n  },\n  body: fileBuffer\n});\n\nconst result = await resp.json();\nconst publicUrl = `${supabaseUrl}/storage/v1/object/public/${bucket}/${fileName}`;\n\ntry { fs.rmSync(workDir, { recursive: true, force: true }); } catch(e) {}\n\nreturn [{\n  json: {\n    success: resp.ok,\n    videoUrl: publicUrl,\n    uploadResult: result,\n    fileName\n  }\n}];"
+      },
+      "typeVersion": 2
+    },
+    {
+      "id": "node-20",
+      "name": "20. Webhook Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "position": [4700, 300],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"success\": {{ $json.success }},\n  \"videoUrl\": \"{{ $json.videoUrl }}\",\n  \"message\": \"Video generated and uploaded successfully\"\n}"
+      },
+      "typeVersion": 1.1
+    }
+  ],
+  "connections": {
+    "1. Webhook": {
+      "main": [[{ "node": "2. Parse FormData", "type": "main", "index": 0 }]]
+    },
+    "2. Parse FormData": {
+      "main": [[{ "node": "3. Upload Files to Supabase", "type": "main", "index": 0 }]]
+    },
+    "3. Upload Files to Supabase": {
+      "main": [[{ "node": "4. Split TTS Jobs", "type": "main", "index": 0 }]]
+    },
+    "4. Split TTS Jobs": {
+      "main": [[{ "node": "5. TTS MiniMax", "type": "main", "index": 0 }]]
+    },
+    "5. TTS MiniMax": {
+      "main": [[{ "node": "6. Extract Audio URL", "type": "main", "index": 0 }]]
+    },
+    "6. Extract Audio URL": {
+      "main": [[{ "node": "7. Download Audio", "type": "main", "index": 0 }]]
+    },
+    "7. Download Audio": {
+      "main": [[{ "node": "8. Gather Audio Results", "type": "main", "index": 0 }]]
+    },
+    "8. Gather Audio Results": {
+      "main": [[{ "node": "9. Save Audio to Disk", "type": "main", "index": 0 }]]
+    },
+    "9. Save Audio to Disk": {
+      "main": [[{ "node": "10. Prepare Video Requests", "type": "main", "index": 0 }]]
+    },
+    "10. Prepare Video Requests": {
+      "main": [[{ "node": "11. Generate Video (API)", "type": "main", "index": 0 }]]
+    },
+    "11. Generate Video (API)": {
+      "main": [[{ "node": "12. Wait Before Poll", "type": "main", "index": 0 }]]
+    },
+    "12. Wait Before Poll": {
+      "main": [[{ "node": "13. Poll Video Status", "type": "main", "index": 0 }]]
+    },
+    "13. Poll Video Status": {
+      "main": [[{ "node": "14. Check If Ready", "type": "main", "index": 0 }]]
+    },
+    "14. Check If Ready": {
+      "main": [
+        [{ "node": "16. Download Videos", "type": "main", "index": 0 }],
+        [{ "node": "15. Wait 15s Retry", "type": "main", "index": 0 }]
+      ]
+    },
+    "15. Wait 15s Retry": {
+      "main": [[{ "node": "13. Poll Video Status", "type": "main", "index": 0 }]]
+    },
+    "16. Download Videos": {
+      "main": [[{ "node": "17. FFmpeg Build Command", "type": "main", "index": 0 }]]
+    },
+    "17. FFmpeg Build Command": {
+      "main": [[{ "node": "18. Execute FFmpeg", "type": "main", "index": 0 }]]
+    },
+    "18. Execute FFmpeg": {
+      "main": [[{ "node": "19. Upload Final to Supabase", "type": "main", "index": 0 }]]
+    },
+    "19. Upload Final to Supabase": {
+      "main": [[{ "node": "20. Webhook Response", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
