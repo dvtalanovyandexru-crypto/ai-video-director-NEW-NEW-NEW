@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Video Director v2</title>
+  <link rel="stylesheet" href="style.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+<div id="app">
+
+  <!-- ===== HEADER ===== -->
+  <header class="header">
+    <div class="logo">🎬 <span>AI Video Director</span></div>
+    <div class="step-info">
+      <div class="progress-track"><div class="progress-bar" id="progressBar"></div></div>
+      <span id="stepLabel">Шаг 1 из 8</span>
+    </div>
+  </header>
+
+  <!-- ===== STEP 1: Сценарий ===== -->
+  <section class="step active" id="step1">
+    <div class="step-title"><span class="num">1</span><h2>Сценарий и концепция</h2></div>
+    <div class="card">
+      <label>📎 Загрузите файл сценария или введите текст</label>
+      <div class="dropzone" id="dropScenario">
+        <div class="dropzone-icon">📎</div>
+        <p>Перетащите файл сюда или нажмите для выбора</p>
+        <small>TXT, DOC, DOCX, PDF, MD</small>
+        <input type="file" id="fileScenario" accept=".txt,.md,.doc,.docx,.pdf" hidden>
+      </div>
+      <label>✏️ Или введите сценарий вручную:</label>
+      <textarea id="scenarioText" rows="8" placeholder="Опишите подробно, что происходит в видео: действия персонажей, эмоции, ключевые моменты..."></textarea>
+      <label>💡 Краткий бриф (общая идея ролика):</label>
+      <textarea id="briefText" rows="3" placeholder="Например: рекламный ролик косметического бренда, модель демонстрирует продукт в студии..."></textarea>
+    </div>
+    <div class="nav-row"><div></div><button class="btn btn-next" onclick="goNext()">Далее →</button></div>
+  </section>
+
+  <!-- ===== STEP 2: Персонажи ===== -->
+  <section class="step" id="step2">
+    <div class="step-title"><span class="num">2</span><h2>Персонажи</h2></div>
+    <div class="card">
+      <label>👥 Количество персонажей:</label>
+      <div class="opts" id="charCountOpts">
+        <div class="opt selected" data-val="1" onclick="setCharCount(1)">👤<br>1</div>
+        <div class="opt" data-val="2" onclick="setCharCount(2)">👥<br>2</div>
+        <div class="opt" data-val="3" onclick="setCharCount(3)">👨‍👩‍👦<br>3</div>
+      </div>
+      <div id="charsGrid"></div>
+      <div class="validation-msg hidden" id="charValidation">⚠️ Загрузите фото лица для каждого персонажа, чтобы продолжить</div>
+    </div>
+    <div class="nav-row">
+      <button class="btn btn-back" onclick="goBack()">← Назад</button>
+      <button class="btn btn-next" id="step2next" onclick="goNext()">Далее →</button>
+    </div>
+  </section>
+
+  <!-- ===== STEP 3: Гардероб ===== -->
+  <section class="step" id="step3">
+    <div class="step-title"><span class="num">3</span><h2>Гардероб персонажей</h2></div>
+    <div class="card" id="wardrobeCard"></div>
+    <div class="nav-row">
+      <button class="btn btn-back" onclick="goBack()">← Назад</button>
+      <button class="btn btn-next" onclick="goNext()">Далее →</button>
+    </div>
+  </section>
+
+  <!-- ===== STEP 4: Интерьер и локация ===== -->
+  <section class="step" id="step4">
+    <div class="step-title"><span class="num">4</span><h2>Интерьер и локация</h2></div>
+    <div class="card">
+      <label>🏠 Описание места действия:</label>
+      <textarea id="locationText" rows="5" placeholder="Опишите обстановку: предметы, цвета, атмосфера, детали интерьера..."></textarea>
+
+      <label>📷 Фото-референсы интерьера (опционально):</label>
+      <div class="upload-row" id="locationPhotos">
+        <div class="upload-box mini" onclick="eid('locPhotoIn').click()">
+          <span class="u-icon">🖼️</span><span>Добавить фото</span>
+          <input type="file" id="locPhotoIn" accept="image/*" multiple hidden onchange="addLocationPhotos(this)">
+        </div>
+      </div>
+      <div class="thumbs-row" id="locThumbs"></div>
+
+      <label>💡 Освещение:</label>
+      <div class="opts" id="lightingOpts">
+        <div class="opt selected" data-val="natural" onclick="pickOpt(this,'lighting')">☀️<br>Естественное</div>
+        <div class="opt" data-val="warm" onclick="pickOpt(this,'lighting')">🕯️<br>Тёплое</div>
+        <div class="opt" data-val="cold" onclick="pickOpt(this,'lighting')">💎<br>Холодное</div>
+        <div class="opt" data-val="dramatic" onclick="pickOpt(this,'lighting')">🎭<br>Драматичное</div>
+        <div class="opt" data-val="soft" onclick="pickOpt(this,'lighting')">🌫️<br>Мягкое</div>
+      </div>
+
+      <label>🎨 Цветовая гамма:</label>
+      <div class="opts" id="colorOpts">
+        <div class="opt" data-val="warm" onclick="pickOpt(this,'colorScheme')">🔴<br>Тёплая</div>
+        <div class="opt" data-val="cold" onclick="pickOpt(this,'colorScheme')">🔵<br>Холодная</div>
+        <div class="opt selected" data-val="neutral" onclick="pickOpt(this,'colorScheme')">🟣<br>Нейтральная</div>
+        <div class="opt" data-val="cinematic" onclick="pickOpt(this,'colorScheme')">🎬<br>Кинематографичная</div>
+      </div>
+    </div>
+    <div class="nav-row">
+      <button class="btn btn-back" onclick="goBack()">← Назад</button>
+      <button class="btn btn-next" onclick="goNext()">Далее →</button>
+    </div>
+  </section>
+
+  <!-- ===== STEP 5: Раскадровка ===== -->
+  <section class="step" id="step5">
+    <div class="step-title"><span class="num">5</span><h2>Раскадровка</h2></div>
+    <div class="card">
+      <label>🎬 Количество сцен:</label>
+      <div class="opts compact" id="sceneCountOpts">
+        <div class="opt selected" data-val="1" onclick="setSceneCount(1)">1</div>
+        <div class="opt" data-val="2" onclick="setSceneCount(2)">2</div>
+        <div class="opt" data-val="3" onclick="setSceneCount(3)">3</div>
+        <div class="opt" data-val="4" onclick="setSceneCount(4)">4</div>
+        <div class="opt" data-val="5" onclick="setSceneCount(5)">5</div>
+      </div>
+
+      <div class="ref-video-toggle">
+        <label class="toggle-label">
+          <input type="checkbox" id="useRefAsScene0" onchange="toggleRefScene()">
+          <span>Использовать референсное видео как первую сцену (без генерации)</span>
+        </label>
+        <small class="hint">Видео-референс персонажа будет вставлено в начало ролика как есть</small>
+      </div>
+
+      <div id="scenesContainer"></div>
+
+      <div class="total-duration-bar">
+        <span>Итого:</span>
+        <strong id="totalDuration">0 сек</strong>
+        <small id="refDurationNote" class="hidden">+ референсное видео</small>
+      </div>
+    </div>
+    <div class="nav-row">
+      <button class="btn btn-back" onclick="goBack()">← Назад</button>
+      <button class="btn btn-next" onclick="goNext()">Далее →</button>
+    </div>
+  </section>
+
+  <!-- ===== STEP 6: Озвучка, голоса и музыка ===== -->
+  <section class="step" id="step6">
+    <div class="step-title"><span class="num">6</span><h2>Озвучка, голоса и музыка</h2></div>
+    <div class="card">
+      <h3>🎙️ Модель озвучки</h3>
+      <div class="model-list" id="ttsModelList">
+        <div class="model selected" data-val="speech-2.8-hd" onclick="pickModel(this,'ttsModel')">
+          <strong>MiniMax Speech 2.8 HD</strong><span class="badge">Рекомендуется</span>
+          <p>Студийное качество, эмоциональная речь, 32 языка</p>
+        </div>
+        <div class="model" data-val="speech-2.8-turbo" onclick="pickModel(this,'ttsModel')">
+          <strong>MiniMax Speech 2.8 Turbo</strong>
+          <p>Быстрая генерация, чуть ниже качество</p>
+        </div>
+      </div>
+
+      <label>⚡ Скорость речи:</label>
+      <div class="slider-row">
+        <input type="range" id="speechSpeed" min="0.5" max="2" step="0.1" value="1">
+        <span id="speedVal">1.0x</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>🗣️ Голоса персонажей</h3>
+      <div id="voicesContainer"></div>
+    </div>
+
+    <div class="card">
+      <h3>🎵 Музыкальное оформление</h3>
+      <div class="opts compact" id="musicOpts">
+        <div class="opt selected" data-val="none" onclick="pickOpt(this,'musicMode')">🔇<br>Без музыки</div>
+        <div class="opt" data-val="describe" onclick="pickOpt(this,'musicMode')">✏️<br>Описать стиль</div>
+        <div class="opt" data-val="upload" onclick="pickOpt(this,'musicMode')">📁<br>Загрузить трек</div>
+      </div>
+      <div id="musicDescBlock" class="hidden">
+        <textarea id="musicDesc" rows="2" placeholder="Например: лёгкая фоновая джазовая музыка, пианино, без вокала..."></textarea>
+      </div>
+      <div id="musicUploadBlock" class="hidden">
+        <div class="upload-box mini" onclick="eid('musicFileIn').click()">
+          <span class="u-icon">🎵</span><span>Загрузить MP3/WAV</span>
+          <input type="file" id="musicFileIn" accept="audio/*" hidden onchange="markMusicUpload(this)">
+        </div>
+      </div>
+    </div>
+    <div class="nav-row">
+      <button class="btn btn-back" onclick="goBack()">← Назад</button>
+      <button class="btn btn-next" onclick="goNext()">Далее →</button>
+    </div>
+  </section>
+
+  <!-- ===== STEP 7: Модель видеогенерации ===== -->
+  <section class="step" id="step7">
+    <div class="step-title"><span class="num">7</span><h2>Модель видеогенерации</h2></div>
+    <div class="card">
+      <div class="model-list" id="videoModelList">
+        <div class="model selected" data-val="seedance-2.0" onclick="pickModel(this,'videoModel')">
+          <strong>Seedance 2.0</strong><span class="badge">Рекомендуется</span>
+          <p>Лучшее качество 2026 года. До 15 сек, image+video+audio вход, 2K</p>
+          <small>4–15 сек · до 2K · image-to-video, video-to-video</small>
+        </div>
+        <div class="model" data-val="kling-3" onclick="pickModel(this,'videoModel')">
+          <strong>Kling 3</strong>
+          <p>Высокое качество, плавные движения, отличная физика</p>
+          <small>5–10 сек · 1080p · std/pro</small>
+        </div>
+        <div class="model" data-val="seedance-1.5-pro" onclick="pickModel(this,'videoModel')">
+          <strong>Seedance 1.5 Pro</strong>
+          <p>Быстрая генерация, хорошая детализация</p>
+          <small>4–12 сек · 1080p · нативный звук</small>
+        </div>
+      </div>
+
+      <label>⚙️ Качество рендера:</label>
+      <div class="opts" id="qualityOpts">
+        <div class="opt" data-val="draft" onclick="pickOpt(this,'quality')"><strong>Черновик</strong><br><small>Быстро</small></div>
+        <div class="opt selected" data-val="standard" onclick="pickOpt(this,'quality')"><strong>Стандарт</strong><br><small>Баланс</small></div>
+        <div class="opt" data-val="high" onclick="pickOpt(this,'quality')"><strong>Высокое</strong><br><small>Макс. качество</small></div>
+      </div>
+
+      <label>📐 Соотношение сторон:</label>
+      <div class="opts compact" id="aspectOpts">
+        <div class="opt selected" data-val="16:9" onclick="pickOpt(this,'aspectRatio')">16:9<br><small>Горизонт.</small></div>
+        <div class="opt" data-val="9:16" onclick="pickOpt(this,'aspectRatio')">9:16<br><small>Вертикал.</small></div>
+        <div class="opt" data-val="1:1" onclick="pickOpt(this,'aspectRatio')">1:1<br><small>Квадрат</small></div>
+      </div>
+    </div>
+    <div class="nav-row">
+      <button class="btn btn-back" onclick="goBack()">← Назад</button>
+      <button class="btn btn-next" onclick="goNext()">Далее →</button>
+    </div>
+  </section>
+
+  <!-- ===== STEP 8: Проверка и запуск ===== -->
+  <section class="step" id="step8">
+    <div class="step-title"><span class="num">8</span><h2>Проверка и запуск</h2></div>
+    <div class="card summary-card">
+      <h3>📋 Сводка проекта</h3>
+      <div class="summary" id="summaryBlock"></div>
+    </div>
+    <div class="card">
+      <h3>📋 Раскадровка</h3>
+      <div id="sceneSummaryTable"></div>
+    </div>
+    <div class="card">
+      <h3>🔑 API-ключи</h3>
+      <label>MiniMax API ключ (озвучка):</label>
+      <input type="password" id="minimaxKeyInput" placeholder="Ваш MiniMax API ключ">
+      <label style="margin-top:12px">API in One ключ (видео):</label>
+      <input type="password" id="apiKeyInput" placeholder="aio_ваш_ключ">
+      <small>MiniMax — для озвучки, API in One — для видеогенерации</small>
+    </div>
+    <div class="card">
+      <h3>🔗 Webhook N8N <small style="color:#64748b">(опционально)</small></h3>
+      <input type="url" id="webhookInput" placeholder="https://ваш-n8n.com/webhook/video-gen">
+      <small>Если заполнен — данные уйдут в N8N вместо прямого вызова API</small>
+    </div>
+    <div class="card">
+      <h3>⏱️ Примерное время</h3>
+      <div id="timeBlock"></div>
+    </div>
+    <div class="launch-row">
+      <button class="btn btn-outline" onclick="saveDraft()">📋 Сохранить черновик</button>
+      <button class="btn btn-launch" id="launchBtn" onclick="launch()">🚀 Запустить генерацию</button>
+    </div>
+    <div class="nav-row">
+      <button class="btn btn-back" onclick="goBack()">← Назад</button>
+      <div></div>
+    </div>
+  </section>
+
+  <!-- ===== MODAL: Прогресс ===== -->
+  <div class="modal-overlay hidden" id="modal">
+    <div class="modal">
+      <h3>🎬 Генерация видео</h3>
+      <div class="log" id="logBox"></div>
+      <div class="progress-track big"><div class="progress-bar" id="genBar"></div></div>
+      <div id="genStatus" class="gen-status">Подготовка...</div>
+      <div class="modal-btns">
+        <button class="btn btn-outline" onclick="closeModal()">Закрыть</button>
+        <button class="btn btn-next hidden" id="dlBtn">📥 Скачать результат</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== TOAST ===== -->
+  <div class="toast-bar hidden" id="toast">
+    <span>📋 Найден сохранённый черновик</span>
+    <button class="btn btn-sm btn-next" onclick="loadDraft()">Загрузить</button>
+    <button class="btn btn-sm btn-outline" onclick="hideToast()">✕</button>
+  </div>
+
+  <!-- ===== AUDIO PREVIEW MODAL ===== -->
+  <div class="modal-overlay hidden" id="voicePreviewModal">
+    <div class="modal modal-sm">
+      <h3>🎧 Прослушайте варианты голоса</h3>
+      <div id="voicePreviewList"></div>
+      <div class="modal-btns">
+        <button class="btn btn-outline" onclick="closeVoicePreview()">Отмена</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+<script src="app.js"></script>
+</body>
+</html>
