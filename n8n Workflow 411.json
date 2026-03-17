@@ -26,7 +26,7 @@
       "parameters": {
         "jsCode": "const raw = $input.first().json;\nconst body = raw.body || raw;\n\nconst projectName = body.projectName || 'Untitled';\nconst apiKey = body.apiKey || '';\nconst videoModel = body.videoModel || 'seedance-2.0';\nconst aspectRatio = body.aspectRatio || '16:9';\nconst quality = body.quality || 'standard';\n\nconst characters = body.characters || {};\nconst scenes = body.scenes || [];\nconst referenceVideoUrl = body.referenceVideoUrl || '';\nconst music = body.music || { enabled: false, description: '', url: '' };\n\nconst ttsJobs = [];\nfor (let si = 0; si < scenes.length; si++) {\n  const sc = scenes[si];\n  if (sc.dialogues && sc.dialogues.length > 0) {\n    for (let di = 0; di < sc.dialogues.length; di++) {\n      const d = sc.dialogues[di];\n      const charName = d.character || '';\n      const char = characters[charName] || {};\n      ttsJobs.push({\n        sceneIndex: si,\n        dialogueIndex: di,\n        character: charName,\n        text: d.text || '',\n        voiceId: char.voiceId || '',\n        voiceDescription: char.voiceDescription || '',\n        gender: char.gender || 'female',\n        age: char.age || 30\n      });\n    }\n  }\n}\n\nreturn [{\n  json: {\n    projectName,\n    apiKey,\n    videoModel,\n    aspectRatio,\n    quality,\n    characters,\n    scenes,\n    referenceVideoUrl,\n    music,\n    ttsJobs,\n    supabaseUrl: 'https://supabase.fantomnatashi.ru'\n  }\n}];"
       },
-      "typeVersion": 1
+      "typeVersion": 2
     },
     {
       "id": "node-03",
@@ -36,7 +36,7 @@
       "parameters": {
         "jsCode": "const data = $input.first().json;\nconst supabaseUrl = data.supabaseUrl;\nconst serviceKey = $env.SUPABASE_SERVICE_ROLE_KEY;\nconst bucket = 'avd-files';\n\nasync function uploadToSupabase(fileUrl, destPath) {\n  if (!fileUrl || fileUrl.startsWith(supabaseUrl)) return fileUrl;\n  try {\n    const response = await fetch(fileUrl);\n    const buffer = await response.arrayBuffer();\n    const uploadUrl = `${supabaseUrl}/storage/v1/object/${bucket}/${destPath}`;\n    const uploadResp = await fetch(uploadUrl, {\n      method: 'POST',\n      headers: {\n        'Authorization': `Bearer ${serviceKey}`,\n        'apikey': serviceKey,\n        'Content-Type': 'application/octet-stream',\n        'x-upsert': 'true'\n      },\n      body: Buffer.from(buffer)\n    });\n    if (uploadResp.ok) {\n      return `${supabaseUrl}/storage/v1/object/public/${bucket}/${destPath}`;\n    }\n  } catch(e) {}\n  return fileUrl;\n}\n\nconst timestamp = Date.now();\nconst chars = data.characters || {};\n\nfor (const [name, char] of Object.entries(chars)) {\n  const safeName = name.replace(/[^a-zA-Z0-9\\u0400-\\u04FF]/g, '_');\n  if (char.facePhotoUrl) {\n    char.facePhotoUrl = await uploadToSupabase(char.facePhotoUrl, `${timestamp}/${safeName}_face.jpg`);\n  }\n  if (char.referenceVideoUrl) {\n    char.referenceVideoUrl = await uploadToSupabase(char.referenceVideoUrl, `${timestamp}/${safeName}_ref.mp4`);\n  }\n}\n\nif (data.referenceVideoUrl) {\n  data.referenceVideoUrl = await uploadToSupabase(data.referenceVideoUrl, `${timestamp}/reference_video.mp4`);\n}\n\ndata.characters = chars;\ndata._timestamp = timestamp;\n\nreturn [{ json: data }];"
       },
-      "typeVersion": 1
+      "typeVersion": 2
     },
     {
       "id": "node-04",
@@ -46,7 +46,7 @@
       "parameters": {
         "jsCode": "const data = $input.first().json;\nconst jobs = data.ttsJobs || [];\n\nif (jobs.length === 0) {\n  return [{ json: { ...data, _noTTS: true, audioFiles: [] } }];\n}\n\nreturn jobs.map(job => ({\n  json: {\n    ...job,\n    _parentData: data\n  }\n}));"
       },
-      "typeVersion": 1
+      "typeVersion": 2
     },
     {
       "id": "node-05",
@@ -82,7 +82,7 @@
       "parameters": {
         "jsCode": "const items = $input.all();\nconst results = [];\n\nfor (const item of items) {\n  const audioUrl = item.json?.data?.audio?.audio_url || item.json?.audio_url || item.json?.data?.audio_url || '';\n  results.push({\n    json: {\n      sceneIndex: item.json.sceneIndex ?? 0,\n      dialogueIndex: item.json.dialogueIndex ?? 0,\n      character: item.json.character || '',\n      audioUrl: audioUrl,\n      text: item.json.text || ''\n    }\n  });\n}\n\nreturn results;"
       },
-      "typeVersion": 1
+      "typeVersion": 2
     },
     {
       "id": "node-07",
@@ -110,7 +110,7 @@
       "parameters": {
         "jsCode": "const audioItems = $input.all();\nconst uploadData = $('3. Upload Files to Supabase').first().json;\n\nreturn [{\n  json: {\n    ...uploadData,\n    audioItems: audioItems.map((item, i) => ({\n      sceneIndex: item.json?.sceneIndex ?? i,\n      dialogueIndex: item.json?.dialogueIndex ?? 0,\n      character: item.json?.character || '',\n      hasBinary: !!item.binary?.data\n    }))\n  }\n}];"
       },
-      "typeVersion": 1
+      "typeVersion": 2
     },
     {
       "id": "node-09",
@@ -120,7 +120,7 @@
       "parameters": {
         "jsCode": "const fs = require('fs');\nconst data = $input.first().json;\nconst audioItems = $('7. Download Audio').all();\nconst ts = data._timestamp || Date.now();\nconst workDir = `/tmp/avd_${ts}`;\n\nfs.mkdirSync(workDir, { recursive: true });\n\nconst savedAudio = [];\nfor (let i = 0; i < audioItems.length; i++) {\n  const item = audioItems[i];\n  if (item.binary?.data) {\n    const filePath = `${workDir}/audio_s${item.json?.sceneIndex || 0}_d${item.json?.dialogueIndex || i}.mp3`;\n    const buf = Buffer.from(item.binary.data.data, 'base64');\n    fs.writeFileSync(filePath, buf);\n    savedAudio.push({\n      path: filePath,\n      sceneIndex: item.json?.sceneIndex || 0,\n      dialogueIndex: item.json?.dialogueIndex || i\n    });\n  }\n}\n\nreturn [{\n  json: {\n    ...data,\n    workDir,\n    savedAudio\n  }\n}];"
       },
-      "typeVersion": 1
+      "typeVersion": 2
     },
     {
       "id": "node-10",
@@ -130,7 +130,7 @@
       "parameters": {
         "jsCode": "const data = $input.first().json;\nconst scenes = data.scenes || [];\nconst characters = data.characters || {};\n\nconst results = [];\nfor (let i = 0; i < scenes.length; i++) {\n  const sc = scenes[i];\n  const charName = sc.characters?.[0] || Object.keys(characters)[0] || '';\n  const char = characters[charName] || {};\n\n  results.push({\n    json: {\n      sceneIndex: i,\n      prompt: sc.prompt || sc.description || '',\n      duration: sc.duration || 10,\n      aspect_ratio: data.aspectRatio || '16:9',\n      model: data.videoModel || 'seedance-2.0',\n      mode: data.quality === 'high' ? 'pro' : 'std',\n      image_url: char.facePhotoUrl || '',\n      video_url: (i === 0 && data.referenceVideoUrl) ? data.referenceVideoUrl : '',\n      camera_angle: sc.cameraAngle || 'medium shot',\n      lighting: sc.lighting || 'natural',\n      _workDir: data.workDir,\n      _timestamp: data._timestamp,\n      _apiKey: data.apiKey\n    }\n  });\n}\n\nreturn results;"
       },
-      "typeVersion": 1
+      "typeVersion": 2
     },
     {
       "id": "node-11",
@@ -257,17 +257,17 @@
       "parameters": {
         "jsCode": "const fs = require('fs');\nconst videoItems = $input.all();\nconst parsing = $('2. Parse FormData').first().json;\nconst audioData = $('9. Save Audio to Disk').first().json;\nconst workDir = audioData.workDir || `/tmp/avd_${Date.now()}`;\nconst savedAudio = audioData.savedAudio || [];\n\nfs.mkdirSync(workDir, { recursive: true });\n\nconst videoFiles = [];\nfor (let i = 0; i < videoItems.length; i++) {\n  const item = videoItems[i];\n  if (item.binary?.data) {\n    const filePath = `${workDir}/scene_${i}.mp4`;\n    const buf = Buffer.from(item.binary.data.data, 'base64');\n    fs.writeFileSync(filePath, buf);\n    videoFiles.push(filePath);\n  }\n}\n\nconst refUrl = parsing.referenceVideoUrl || '';\nconst cmds = [];\n\nif (refUrl) {\n  cmds.push(`curl -sL \"${refUrl}\" -o ${workDir}/ref.mp4`);\n}\n\nlet concatContent = '';\nif (refUrl) concatContent += `file '${workDir}/ref.mp4'\\n`;\nvideoFiles.forEach(f => { concatContent += `file '${f}'\\n`; });\nfs.writeFileSync(`${workDir}/concat_video.txt`, concatContent);\n\ncmds.push(`ffmpeg -y -f concat -safe 0 -i ${workDir}/concat_video.txt -c:v libx264 -preset fast -crf 23 ${workDir}/merged_video.mp4`);\n\nif (savedAudio.length > 0) {\n  const sceneAudioMap = {};\n  savedAudio.forEach(a => {\n    if (!sceneAudioMap[a.sceneIndex]) sceneAudioMap[a.sceneIndex] = [];\n    sceneAudioMap[a.sceneIndex].push(a.path);\n  });\n\n  const allAudioPaths = [];\n  const sceneIndices = Object.keys(sceneAudioMap).sort((a,b) => a - b);\n\n  if (refUrl) {\n    cmds.push(`ffprobe -v error -show_entries format=duration -of csv=p=0 ${workDir}/ref.mp4 > ${workDir}/ref_duration.txt`);\n    cmds.push(`REF_DUR=$(cat ${workDir}/ref_duration.txt) && ffmpeg -y -f lavfi -i anullsrc=r=32000:cl=mono -t $REF_DUR ${workDir}/silence_ref.mp3`);\n    allAudioPaths.push(`${workDir}/silence_ref.mp3`);\n  }\n\n  for (const si of sceneIndices) {\n    const files = sceneAudioMap[si];\n    if (files.length === 1) {\n      allAudioPaths.push(files[0]);\n    } else {\n      const sceneConcat = files.map(f => `file '${f}'`).join('\\n');\n      fs.writeFileSync(`${workDir}/audio_scene_${si}.txt`, sceneConcat);\n      cmds.push(`ffmpeg -y -f concat -safe 0 -i ${workDir}/audio_scene_${si}.txt -c copy ${workDir}/audio_scene_${si}.mp3`);\n      allAudioPaths.push(`${workDir}/audio_scene_${si}.mp3`);\n    }\n  }\n\n  const audioConcat = allAudioPaths.map(f => `file '${f}'`).join('\\n');\n  fs.writeFileSync(`${workDir}/concat_audio.txt`, audioConcat);\n  cmds.push(`ffmpeg -y -f concat -safe 0 -i ${workDir}/concat_audio.txt -c copy ${workDir}/merged_audio.mp3`);\n  cmds.push(`ffmpeg -y -i ${workDir}/merged_video.mp4 -i ${workDir}/merged_audio.mp3 -c:v copy -c:a aac -map 0:v:0 -map 1:a:0 -shortest ${workDir}/final.mp4`);\n} else {\n  cmds.push(`cp ${workDir}/merged_video.mp4 ${workDir}/final.mp4`);\n}\n\nconst music = parsing.music || {};\nif (music.enabled && music.url) {\n  cmds.push(`curl -sL \"${music.url}\" -o ${workDir}/music.mp3`);\n  cmds.push(`mv ${workDir}/final.mp4 ${workDir}/final_nomusic.mp4`);\n  cmds.push(`ffmpeg -y -i ${workDir}/final_nomusic.mp4 -i ${workDir}/music.mp3 -filter_complex \"[1:a]volume=0.15[bg];[0:a][bg]amix=inputs=2:duration=first[aout]\" -map 0:v -map \"[aout]\" -c:v copy -c:a aac ${workDir}/final.mp4`);\n}\n\nconst fullCmd = cmds.join(' && ');\n\nreturn [{ json: { command: fullCmd, workDir, outputFile: `${workDir}/final.mp4` } }];"
       },
-      "typeVersion": 1
+      "typeVersion": 2
     },
     {
       "id": "node-18",
       "name": "18. Execute FFmpeg",
-      "type": "n8n-nodes-base.executeCommand",
+      "type": "n8n-nodes-base.code",
       "position": [4200, 300],
       "parameters": {
-        "command": "={{ $json.command }}"
+        "jsCode": "const { execSync } = require('child_process');\nconst command = $input.first().json.command;\n\ntry {\n  const stdout = execSync(command, {\n    timeout: 600000,\n    maxBuffer: 50 * 1024 * 1024,\n    encoding: 'utf8'\n  });\n\n  return [{\n    json: {\n      success: true,\n      stdout: stdout.substring(0, 5000),\n      workDir: $input.first().json.workDir,\n      outputFile: $input.first().json.outputFile\n    }\n  }];\n} catch (error) {\n  return [{\n    json: {\n      success: false,\n      error: error.message.substring(0, 3000),\n      stderr: (error.stderr || '').substring(0, 3000),\n      workDir: $input.first().json.workDir,\n      outputFile: $input.first().json.outputFile\n    }\n  }];\n}"
       },
-      "typeVersion": 1
+      "typeVersion": 2
     },
     {
       "id": "node-19",
@@ -277,7 +277,7 @@
       "parameters": {
         "jsCode": "const fs = require('fs');\nconst workDir = $('17. FFmpeg Build Command').first().json.workDir;\nconst outputFile = $('17. FFmpeg Build Command').first().json.outputFile;\nconst serviceKey = $env.SUPABASE_SERVICE_ROLE_KEY;\nconst supabaseUrl = 'https://supabase.fantomnatashi.ru';\nconst bucket = 'avd-files';\nconst fileName = `final_${Date.now()}.mp4`;\n\nconst fileBuffer = fs.readFileSync(outputFile);\n\nconst uploadUrl = `${supabaseUrl}/storage/v1/object/${bucket}/${fileName}`;\nconst resp = await fetch(uploadUrl, {\n  method: 'POST',\n  headers: {\n    'Authorization': `Bearer ${serviceKey}`,\n    'apikey': serviceKey,\n    'Content-Type': 'video/mp4',\n    'x-upsert': 'true'\n  },\n  body: fileBuffer\n});\n\nconst result = await resp.json();\nconst publicUrl = `${supabaseUrl}/storage/v1/object/public/${bucket}/${fileName}`;\n\ntry { fs.rmSync(workDir, { recursive: true, force: true }); } catch(e) {}\n\nreturn [{\n  json: {\n    success: resp.ok,\n    videoUrl: publicUrl,\n    uploadResult: result,\n    fileName\n  }\n}];"
       },
-      "typeVersion": 1
+      "typeVersion": 2
     },
     {
       "id": "node-20",
@@ -354,3 +354,4 @@
     }
   }
 }
+
